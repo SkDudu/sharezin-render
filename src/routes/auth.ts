@@ -156,10 +156,10 @@ export async function authRoutes(fastify: FastifyInstance) {
   // Obter informações do usuário autenticado
   fastify.get(
     '/me',
-    { preHandler: authenticate },
-    async (request: AuthenticatedRequest, reply: FastifyReply) => {
+    { preHandler: [authenticate] },
+    async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        if (!request.user) {
+        if (!request.userPayload) {
           return reply.status(401).send({
             error: {
               message: 'Não autenticado',
@@ -169,7 +169,7 @@ export async function authRoutes(fastify: FastifyInstance) {
         }
 
         const user = await prisma.sharezinUser.findUnique({
-          where: { id: request.user.id },
+          where: { id: request.userPayload.id },
           select: {
             id: true,
             name: true,
@@ -210,10 +210,10 @@ export async function authRoutes(fastify: FastifyInstance) {
   // Alterar senha
   fastify.post<{ Body: ChangePasswordDto }>(
     '/change-password',
-    { preHandler: authenticate },
-    async (request: AuthenticatedRequest<{ Body: ChangePasswordDto }>, reply: FastifyReply) => {
+    { preHandler: [authenticate] },
+    async (request: FastifyRequest<{ Body: ChangePasswordDto }>, reply: FastifyReply) => {
       try {
-        if (!request.user) {
+        if (!request.userPayload) {
           return reply.status(401).send({
             error: {
               message: 'Não autenticado',
@@ -253,7 +253,7 @@ export async function authRoutes(fastify: FastifyInstance) {
 
         // Buscar usuário
         const user = await prisma.sharezinUser.findUnique({
-          where: { id: request.user.id },
+          where: { id: request.userPayload.id },
         });
 
         if (!user) {

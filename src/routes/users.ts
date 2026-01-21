@@ -7,10 +7,10 @@ export async function userRoutes(fastify: FastifyInstance) {
   // Listar todos os usuários
   fastify.get(
     '/',
-    { preHandler: authenticate },
+    { preHandler: [authenticate] },
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const users = await prisma.user.findMany({
+        const users = await prisma.sharezinUser.findMany({
           orderBy: {
             createdAt: 'desc',
           },
@@ -35,12 +35,12 @@ export async function userRoutes(fastify: FastifyInstance) {
   // Buscar usuário por ID
   fastify.get<{ Params: { id: string } }>(
     '/:id',
-    { preHandler: authenticate },
+    { preHandler: [authenticate] },
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       try {
         const { id } = request.params;
 
-        const user = await prisma.user.findUnique({
+        const user = await prisma.sharezinUser.findUnique({
           where: { id },
         });
 
@@ -71,7 +71,7 @@ export async function userRoutes(fastify: FastifyInstance) {
   // Criar novo usuário
   fastify.post<{ Body: CreateUserDto }>(
     '/',
-    { preHandler: authenticate },
+    { preHandler: [authenticate] },
     async (request: FastifyRequest<{ Body: CreateUserDto }>, reply: FastifyReply) => {
       try {
         const { email, name } = request.body;
@@ -86,7 +86,7 @@ export async function userRoutes(fastify: FastifyInstance) {
         }
 
         // Verificar se email já existe
-        const existingUser = await prisma.user.findUnique({
+        const existingUser = await prisma.sharezinUser.findUnique({
           where: { email },
         });
 
@@ -99,16 +99,21 @@ export async function userRoutes(fastify: FastifyInstance) {
           });
         }
 
-        const user = await prisma.user.create({
-          data: {
-            email,
-            name: name || null,
+        // Esta rota não deve criar usuários com senha - use /api/auth/register
+        // Por enquanto, retornar erro
+        return reply.status(400).send({
+          error: {
+            message: 'Use /api/auth/register to create users with passwords',
+            statusCode: 400,
           },
         });
 
-        return reply.status(201).send({
-          message: 'User created successfully',
-          data: user,
+        // Esta rota não deve criar usuários - use /api/auth/register
+        return reply.status(400).send({
+          error: {
+            message: 'Use /api/auth/register to create users',
+            statusCode: 400,
+          },
         });
       } catch (error) {
         console.error('Error creating user:', error);
@@ -125,17 +130,18 @@ export async function userRoutes(fastify: FastifyInstance) {
   // Atualizar usuário
   fastify.put<{ Params: { id: string }; Body: UpdateUserDto }>(
     '/:id',
-    { preHandler: authenticate },
+    { preHandler: [authenticate] },
     async (
       request: FastifyRequest<{ Params: { id: string }; Body: UpdateUserDto }>,
       reply: FastifyReply
     ) => {
       try {
         const { id } = request.params;
-        const { email, name } = request.body;
+        const body = request.body as UpdateUserDto;
+        const { email, name } = body;
 
         // Verificar se usuário existe
-        const existingUser = await prisma.user.findUnique({
+        const existingUser = await prisma.sharezinUser.findUnique({
           where: { id },
         });
 
@@ -150,7 +156,7 @@ export async function userRoutes(fastify: FastifyInstance) {
 
         // Se email está sendo atualizado, verificar se já existe
         if (email && email !== existingUser.email) {
-          const emailExists = await prisma.user.findUnique({
+          const emailExists = await prisma.sharezinUser.findUnique({
             where: { email },
           });
 
@@ -164,7 +170,7 @@ export async function userRoutes(fastify: FastifyInstance) {
           }
         }
 
-        const user = await prisma.user.update({
+        const user = await prisma.sharezinUser.update({
           where: { id },
           data: {
             ...(email && { email }),
@@ -191,13 +197,13 @@ export async function userRoutes(fastify: FastifyInstance) {
   // Deletar usuário
   fastify.delete<{ Params: { id: string } }>(
     '/:id',
-    { preHandler: authenticate },
+    { preHandler: [authenticate] },
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       try {
         const { id } = request.params;
 
         // Verificar se usuário existe
-        const existingUser = await prisma.user.findUnique({
+        const existingUser = await prisma.sharezinUser.findUnique({
           where: { id },
         });
 
@@ -210,7 +216,7 @@ export async function userRoutes(fastify: FastifyInstance) {
           });
         }
 
-        await prisma.user.delete({
+        await prisma.sharezinUser.delete({
           where: { id },
         });
 

@@ -6,8 +6,15 @@ export interface UserPayload {
   email: string;
 }
 
+// Extend FastifyRequest to add our custom user property
+declare module 'fastify' {
+  interface FastifyRequest {
+    userPayload?: UserPayload;
+  }
+}
+
 export interface AuthenticatedRequest extends FastifyRequest {
-  user?: UserPayload;
+  userPayload: UserPayload;
 }
 
 // User
@@ -22,6 +29,11 @@ export interface CreateUserDto {
   name: string;
   email: string;
   password: string;
+}
+
+export interface UpdateUserDto {
+  email?: string;
+  name?: string;
 }
 
 export interface LoginDto {

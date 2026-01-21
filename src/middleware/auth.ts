@@ -16,7 +16,7 @@ export const authenticate = async (
     
     // Adicionar usuário ao request
     const payload = request.user as { id: string; email: string };
-    (request as AuthenticatedRequest).user = {
+    request.userPayload = {
       id: payload.id,
       email: payload.email,
     };

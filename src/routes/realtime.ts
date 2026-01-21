@@ -7,10 +7,10 @@ const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
 export async function realtimeRoutes(fastify: FastifyInstance) {
   await fastify.register(async function (fastify) {
     // WebSocket endpoint para realtime
-    fastify.get('/ws', { websocket: true }, (connection) => {
+    fastify.get('/ws', { websocket: true }, (connection, req) => {
       const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-      connection.socket.on('message', async (message: Buffer) => {
+      connection.on('message', async (message: Buffer) => {
         try {
           const data = JSON.parse(message.toString());
 
@@ -26,7 +26,7 @@ export async function realtimeRoutes(fastify: FastifyInstance) {
                   table: data.table,
                 },
                 (payload) => {
-                  connection.socket.send(
+                  connection.send(
                     JSON.stringify({
                       type: 'change',
                       table: data.table,
@@ -37,7 +37,7 @@ export async function realtimeRoutes(fastify: FastifyInstance) {
               )
               .subscribe();
 
-            connection.socket.send(
+            connection.send(
               JSON.stringify({
                 type: 'subscribed',
                 table: data.table,
@@ -45,15 +45,15 @@ export async function realtimeRoutes(fastify: FastifyInstance) {
             );
 
             // Cleanup on close
-            connection.socket.on('close', () => {
+            connection.on('close', () => {
               supabase.removeChannel(channel);
             });
           } else if (data.type === 'ping') {
-            connection.socket.send(JSON.stringify({ type: 'pong' }));
+            connection.send(JSON.stringify({ type: 'pong' }));
           }
         } catch (error) {
           console.error('WebSocket error:', error);
-          connection.socket.send(
+          connection.send(
             JSON.stringify({
               type: 'error',
               message: 'Invalid message format',
@@ -62,12 +62,12 @@ export async function realtimeRoutes(fastify: FastifyInstance) {
         }
       });
 
-      connection.socket.on('close', () => {
+      connection.on('close', () => {
         console.log('WebSocket connection closed');
       });
 
       // Send welcome message
-      connection.socket.send(
+      connection.send(
         JSON.stringify({
           type: 'connected',
           message: 'Connected to realtime server',
