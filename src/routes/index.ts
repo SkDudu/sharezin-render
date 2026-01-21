@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { authRoutes } from './auth';
 import { userRoutes } from './users';
 import { realtimeRoutes } from './realtime';
+import { receiptRoutes } from './receipts';
 
 export async function registerRoutes(fastify: FastifyInstance) {
   // Rotas de autenticação
@@ -12,6 +13,9 @@ export async function registerRoutes(fastify: FastifyInstance) {
 
   // Rotas de realtime
   await fastify.register(realtimeRoutes, { prefix: '/api/realtime' });
+
+  // Rotas de recibos
+  await fastify.register(receiptRoutes, { prefix: '/api/receipts' });
 
   // Health check
   fastify.get('/health', async (request, reply) => {
