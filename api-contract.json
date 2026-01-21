@@ -1,0 +1,944 @@
+{
+    "version": "2.0.0",
+    "description": "Contrato de API para o Sharezin - Divisão de Recibos",
+    "baseUrl": "/api",
+    "lastUpdated": "2024",
+    "authentication": {
+      "type": "Bearer Token",
+      "header": "Authorization",
+      "format": "Bearer {token}",
+      "note": "Todas as requisições (exceto login/register) requerem autenticação via JWT token obtido no login/register"
+    },
+    "schemas": {
+      "Participant": {
+        "id": "string (UUID)",
+        "name": "string",
+        "groupId": "string (UUID, optional)",
+        "userId": "string (UUID, optional) - ID do usuário associado ao participante",
+        "isClosed": "boolean (optional, default: false) - indica se o participante fechou sua participação"
+      },
+      "PendingParticipant": {
+        "id": "string (UUID)",
+        "name": "string",
+        "requestedAt": "string (ISO 8601)",
+        "userId": "string (UUID) - ID do usuário que solicitou"
+      },
+      "Group": {
+        "id": "string (UUID)",
+        "name": "string",
+        "participantIds": "string[] (array de UUIDs)"
+      },
+      "ReceiptItem": {
+        "id": "string (UUID)",
+        "name": "string",
+        "quantity": "number",
+        "price": "number",
+        "participantId": "string (UUID) - participante que pediu o produto",
+        "addedAt": "string (ISO 8601) - timestamp de quando foi adicionado"
+      },
+      "DeletionRequest": {
+        "id": "string (UUID)",
+        "itemId": "string (UUID)",
+        "participantId": "string (UUID) - participante que solicitou a exclusão",
+        "requestedAt": "string (ISO 8601)"
+      },
+      "Receipt": {
+        "id": "string (UUID)",
+        "title": "string",
+        "date": "string (ISO 8601)",
+        "creatorId": "string (UUID) - ID do criador do recibo",
+        "inviteCode": "string (único, 6-8 caracteres alfanuméricos)",
+        "participants": "Participant[] - criados automaticamente quando adicionam produtos",
+        "pendingParticipants": "PendingParticipant[] - participantes aguardando aprovação",
+        "items": "ReceiptItem[]",
+        "deletionRequests": "DeletionRequest[] - solicitações de exclusão pendentes",
+        "serviceChargePercent": "number (0-100) - taxa do garçom em porcentagem",
+        "cover": "number - cover (valor fixo)",
+        "total": "number (calculado automaticamente)",
+        "isClosed": "boolean - indica se o recibo está fechado",
+        "createdAt": "string (ISO 8601)",
+        "updatedAt": "string (ISO 8601)"
+      },
+      "User": {
+        "id": "string (UUID)",
+        "name": "string",
+        "email": "string",
+        "createdAt": "string (ISO 8601)"
+      },
+      "Notification": {
+        "id": "string (UUID)",
+        "userId": "string (UUID)",
+        "type": "NotificationType",
+        "title": "string",
+        "message": "string",
+        "receiptId": "string (UUID, optional)",
+        "relatedUserId": "string (UUID, optional)",
+        "isRead": "boolean",
+        "createdAt": "string (ISO 8601)",
+        "updatedAt": "string (ISO 8601)"
+      },
+      "NotificationType": "participant_request | participant_approved | participant_rejected | deletion_request | deletion_approved | deletion_rejected | receipt_closed | item_added | creator_transferred | creator_transferred_from",
+      "PlanFeatures": {
+        "dashboard": "boolean (optional)",
+        "analytics": "boolean (optional)",
+        "pdfExport": "boolean (optional)",
+        "excelExport": "boolean (optional)"
+      },
+      "Plan": {
+        "id": "string (UUID)",
+        "name": "string",
+        "displayName": "string",
+        "description": "string (optional)",
+        "priceMonthly": "number",
+        "maxParticipantsPerReceipt": "number | null - null = ilimitado",
+        "maxReceiptsPerMonth": "number | null - null = ilimitado",
+        "maxHistoryReceipts": "number | null - null = ilimitado",
+        "features": "PlanFeatures",
+        "isActive": "boolean",
+        "createdAt": "string (ISO 8601)",
+        "updatedAt": "string (ISO 8601)"
+      },
+      "UserSubscription": {
+        "id": "string (UUID)",
+        "userId": "string (UUID)",
+        "planId": "string (UUID)",
+        "plan": "Plan (optional)",
+        "status": "active | cancelled | expired",
+        "startedAt": "string (ISO 8601)",
+        "expiresAt": "string (ISO 8601, optional)",
+        "cancelledAt": "string (ISO 8601, optional)",
+        "createdAt": "string (ISO 8601)",
+        "updatedAt": "string (ISO 8601)"
+      },
+      "DashboardStats": {
+        "expensesByPeriod": "Array<{ period: string, total: number, receiptCount: number }>",
+        "expensesByDay": "Array<{ day: string, total: number, receiptCount: number }>",
+        "expenseDistribution": "Array<{ receiptId: string, receiptTitle: string, receiptDate: string, totalSpent: number, isClosed: boolean }>"
+      }
+    },
+    "endpoints": {
+      "auth": {
+        "login": {
+          "method": "POST",
+          "path": "/auth/login",
+          "description": "Autentica um usuário e retorna token JWT",
+          "authentication": false,
+          "request": {
+            "body": {
+              "email": "string (required)",
+              "password": "string (required)"
+            }
+          },
+          "response": {
+            "200": {
+              "token": "string (JWT)",
+              "user": "User"
+            },
+            "400": {
+              "error": "Bad Request",
+              "message": "Email e senha são obrigatórios"
+            },
+            "401": {
+              "error": "Unauthorized",
+              "message": "Credenciais inválidas"
+            },
+            "500": {
+              "error": "Internal Server Error",
+              "message": "Erro ao processar login"
+            }
+          }
+        },
+        "register": {
+          "method": "POST",
+          "path": "/auth/register",
+          "description": "Registra um novo usuário e retorna token JWT",
+          "authentication": false,
+          "request": {
+            "body": {
+              "name": "string (required)",
+              "email": "string (required)",
+              "password": "string (required, min: 6 caracteres)"
+            }
+          },
+          "response": {
+            "201": {
+              "token": "string (JWT)",
+              "user": "User"
+            },
+            "400": {
+              "error": "Bad Request",
+              "message": "Nome, email e senha são obrigatórios | Email já cadastrado | Senha deve ter pelo menos 6 caracteres"
+            },
+            "500": {
+              "error": "Internal Server Error",
+              "message": "Erro ao processar registro"
+            }
+          }
+        },
+        "me": {
+          "method": "GET",
+          "path": "/auth/me",
+          "description": "Retorna informações do usuário autenticado",
+          "authentication": true,
+          "response": {
+            "200": {
+              "user": "User"
+            },
+            "401": {
+              "error": "Unauthorized",
+              "message": "Não autenticado"
+            }
+          }
+        },
+        "changePassword": {
+          "method": "POST",
+          "path": "/auth/change-password",
+          "description": "Altera a senha do usuário autenticado",
+          "authentication": true,
+          "request": {
+            "body": {
+              "currentPassword": "string (required)",
+              "newPassword": "string (required, min: 6 caracteres)"
+            }
+          },
+          "response": {
+            "200": {
+              "success": "boolean",
+              "message": "Senha alterada com sucesso"
+            },
+            "400": {
+              "error": "Bad Request",
+              "message": "Senha atual e nova senha são obrigatórias | Nova senha deve ter pelo menos 6 caracteres | A nova senha deve ser diferente da senha atual"
+            },
+            "401": {
+              "error": "Unauthorized",
+              "message": "Senha atual incorreta | Não autenticado"
+            },
+            "404": {
+              "error": "Not Found",
+              "message": "Usuário não encontrado"
+            },
+            "500": {
+              "error": "Internal Server Error",
+              "message": "Erro ao atualizar senha | Erro ao processar requisição"
+            }
+          }
+        }
+      },
+      "receipts": {
+        "list": {
+          "method": "GET",
+          "path": "/receipts",
+          "description": "Lista todos os recibos do usuário autenticado (criador ou participante)",
+          "authentication": true,
+          "queryParams": {
+            "includeClosed": "boolean (optional, default: false) - inclui recibos fechados",
+            "onlyClosed": "boolean (optional, default: false) - retorna apenas recibos fechados (histórico)",
+            "limit": "number (optional, default: 100)",
+            "offset": "number (optional, default: 0)"
+          },
+          "response": {
+            "200": {
+              "receipts": "Receipt[]",
+              "total": "number"
+            },
+            "401": {
+              "error": "Unauthorized",
+              "message": "Não autenticado"
+            },
+            "500": {
+              "error": "Internal Server Error",
+              "message": "Erro ao buscar recibos"
+            }
+          },
+          "notes": "Quando onlyClosed=true, aplica limite de histórico do plano do usuário (maxHistoryReceipts)"
+        },
+        "getById": {
+          "method": "GET",
+          "path": "/receipts/{id}",
+          "description": "Busca um recibo por ID",
+          "authentication": true,
+          "pathParams": {
+            "id": "string (UUID)"
+          },
+          "response": {
+            "200": {
+              "receipt": "Receipt"
+            },
+            "403": {
+              "error": "Forbidden",
+              "message": "Sem permissão para acessar este recibo"
+            },
+            "404": {
+              "error": "Not Found",
+              "message": "Recibo não encontrado"
+            },
+            "500": {
+              "error": "Internal Server Error",
+              "message": "Erro ao processar requisição"
+            }
+          }
+        },
+        "getByInviteCode": {
+          "method": "GET",
+          "path": "/receipts/invite/{inviteCode}",
+          "description": "Busca um recibo por código de convite (não requer autenticação para visualizar)",
+          "authentication": false,
+          "pathParams": {
+            "inviteCode": "string"
+          },
+          "response": {
+            "200": {
+              "receipt": "Receipt"
+            },
+            "404": {
+              "error": "Not Found",
+              "message": "Código de convite inválido"
+            },
+            "500": {
+              "error": "Internal Server Error",
+              "message": "Erro ao processar requisição"
+            }
+          }
+        },
+        "create": {
+          "method": "POST",
+          "path": "/receipts",
+          "description": "Cria um novo recibo",
+          "authentication": true,
+          "request": {
+            "body": {
+              "title": "string (required)",
+              "serviceChargePercent": "number (optional, default: 0)",
+              "cover": "number (optional, default: 0)",
+              "groupId": "string (UUID, optional) - adiciona participantes do grupo automaticamente"
+            }
+          },
+          "response": {
+            "201": {
+              "receipt": "Receipt"
+            },
+            "400": {
+              "error": "Bad Request",
+              "message": "Título é obrigatório"
+            },
+            "403": {
+              "error": "Plan Limit",
+              "message": "Limite de recibos atingido"
+            },
+            "500": {
+              "error": "Internal Server Error",
+              "message": "Erro ao criar recibo"
+            }
+          },
+          "notes": "O criador é automaticamente adicionado como participante. Verifica limite de recibos por mês do plano."
+        },
+        "update": {
+          "method": "PUT",
+          "path": "/receipts/{id}",
+          "description": "Atualiza um recibo existente. Criador pode modificar campos do recibo, participantes só podem adicionar itens.",
+          "authentication": true,
+          "pathParams": {
+            "id": "string (UUID)"
+          },
+          "request": {
+            "body": {
+              "title": "string (optional) - apenas criador",
+              "serviceChargePercent": "number (optional) - apenas criador",
+              "cover": "number (optional) - apenas criador",
+              "isClosed": "boolean (optional) - apenas criador",
+              "total": "number (optional) - calculado automaticamente",
+              "participants": "Participant[] (optional)",
+              "pendingParticipants": "PendingParticipant[] (optional)",
+              "deletionRequests": "DeletionRequest[] (optional)",
+              "items": "ReceiptItem[] (optional)"
+            }
+          },
+          "response": {
+            "200": {
+              "receipt": "Receipt"
+            },
+            "403": {
+              "error": "Forbidden",
+              "message": "Sem permissão para atualizar este recibo | Não é possível adicionar produtos a um recibo fechado | Limite de participantes atingido"
+            },
+            "404": {
+              "error": "Not Found",
+              "message": "Recibo não encontrado"
+            },
+            "500": {
+              "error": "Internal Server Error",
+              "message": "Erro ao atualizar recibo"
+            }
+          },
+          "notes": "Novos itens adicionados geram notificações para outros participantes. Verifica limite de participantes ao aceitar participantes pendentes."
+        },
+        "delete": {
+          "method": "DELETE",
+          "path": "/receipts/{id}",
+          "description": "Exclui um recibo (apenas criador)",
+          "authentication": true,
+          "pathParams": {
+            "id": "string (UUID)"
+          },
+          "response": {
+            "204": {},
+            "403": {
+              "error": "Forbidden",
+              "message": "Apenas o criador pode excluir o recibo"
+            },
+            "500": {
+              "error": "Internal Server Error",
+              "message": "Erro ao excluir recibo"
+            }
+          }
+        },
+        "close": {
+          "method": "POST",
+          "path": "/receipts/{id}/close",
+          "description": "Fecha um recibo (apenas criador). Cria notificações para todos os participantes.",
+          "authentication": true,
+          "pathParams": {
+            "id": "string (UUID)"
+          },
+          "response": {
+            "200": {
+              "receipt": "Receipt"
+            },
+            "403": {
+              "error": "Forbidden",
+              "message": "Apenas o criador pode fechar o recibo"
+            },
+            "500": {
+              "error": "Internal Server Error",
+              "message": "Erro ao fechar recibo"
+            }
+          }
+        },
+        "requestJoin": {
+          "method": "POST",
+          "path": "/receipts/{id}/request-join",
+          "description": "Solicita entrada em um recibo. Cria uma solicitação pendente que precisa ser aprovada pelo criador.",
+          "authentication": true,
+          "pathParams": {
+            "id": "string (UUID)"
+          },
+          "request": {
+            "body": {
+              "name": "string (optional) - se não informado, usa nome do usuário autenticado"
+            }
+          },
+          "response": {
+            "201": {
+              "message": "Solicitação de entrada enviada com sucesso",
+              "pendingParticipant": "PendingParticipant"
+            },
+            "400": {
+              "error": "Bad Request",
+              "message": "Não é possível solicitar entrada em um recibo fechado | Você é o responsável por este recibo | Você já é participante deste recibo | Você já solicitou entrada neste recibo"
+            },
+            "404": {
+              "error": "Not Found",
+              "message": "Recibo não encontrado"
+            },
+            "500": {
+              "error": "Internal Server Error",
+              "message": "Erro ao criar solicitação de entrada"
+            }
+          },
+          "notes": "Cria notificação para o criador do recibo"
+        },
+        "transferCreator": {
+          "method": "PUT",
+          "path": "/receipts/{id}/transfer-creator",
+          "description": "Transfere a responsabilidade (criador) do recibo para outro participante (apenas criador atual)",
+          "authentication": true,
+          "pathParams": {
+            "id": "string (UUID)"
+          },
+          "request": {
+            "body": {
+              "newCreatorParticipantId": "string (UUID, required)"
+            }
+          },
+          "response": {
+            "200": {
+              "receipt": "Receipt"
+            },
+            "400": {
+              "error": "Bad Request",
+              "message": "ID do novo criador é obrigatório | Novo criador não encontrado | Não é possível transferir para si mesmo | O novo criador deve ser um participante do recibo | Não é possível transferir para um participante que fechou sua participação | Não é possível transferir criador de um recibo fechado"
+            },
+            "403": {
+              "error": "Forbidden",
+              "message": "Apenas o criador atual pode transferir a responsabilidade"
+            },
+            "404": {
+              "error": "Not Found",
+              "message": "Recibo não encontrado"
+            },
+            "500": {
+              "error": "Internal Server Error",
+              "message": "Erro ao transferir criador"
+            }
+          },
+          "notes": "Cria notificações para o novo criador e o criador antigo"
+        },
+        "dashboardStats": {
+          "method": "GET",
+          "path": "/receipts/dashboard-stats",
+          "description": "Busca estatísticas do dashboard (gastos por período, por dia, distribuição). Apenas recibos fechados.",
+          "authentication": true,
+          "queryParams": {
+            "year": "string (optional, default: ano atual) - filtra gastos por dia do ano especificado"
+          },
+          "response": {
+            "200": {
+              "expensesByPeriod": "Array<{ period: string, total: number, receiptCount: number }>",
+              "expensesByDay": "Array<{ day: string, total: number, receiptCount: number }>",
+              "expenseDistribution": "Array<{ receiptId: string, receiptTitle: string, receiptDate: string, totalSpent: number, isClosed: boolean }>"
+            },
+            "401": {
+              "error": "Unauthorized",
+              "message": "Não autenticado"
+            },
+            "500": {
+              "error": "Internal Server Error",
+              "message": "Erro ao buscar gastos por período | Erro ao buscar distribuição de gastos"
+            }
+          },
+          "notes": "Cache de 5 minutos no servidor. Retorna apenas dados de recibos fechados."
+        }
+      },
+      "receiptParticipants": {
+        "remove": {
+          "method": "DELETE",
+          "path": "/receipts/{id}/participants/{participantId}",
+          "description": "Remove um participante do recibo e todos os seus produtos (apenas criador)",
+          "authentication": true,
+          "pathParams": {
+            "id": "string (UUID) - ID do recibo",
+            "participantId": "string (UUID) - ID do participante"
+          },
+          "response": {
+            "200": {
+              "receipt": "Receipt"
+            },
+            "403": {
+              "error": "Forbidden",
+              "message": "Apenas o criador pode remover participantes | Não é possível remover a própria participação como criador"
+            },
+            "404": {
+              "error": "Not Found",
+              "message": "Recibo não encontrado | Participante não encontrado neste recibo"
+            },
+            "500": {
+              "error": "Internal Server Error",
+              "message": "Erro ao remover participante"
+            }
+          }
+        },
+        "closeParticipation": {
+          "method": "POST",
+          "path": "/receipts/{id}/participants/{participantId}/close",
+          "description": "Fecha a participação de um participante (apenas criador). O participante não pode mais adicionar itens.",
+          "authentication": true,
+          "pathParams": {
+            "id": "string (UUID) - ID do recibo",
+            "participantId": "string (UUID) - ID do participante"
+          },
+          "response": {
+            "200": {
+              "receipt": "Receipt"
+            },
+            "400": {
+              "error": "Bad Request",
+              "message": "Não é possível fechar participações em um recibo fechado"
+            },
+            "403": {
+              "error": "Forbidden",
+              "message": "Apenas o criador pode fechar participações | Use a opção 'Fechar Minha Participação' para fechar sua própria participação"
+            },
+            "404": {
+              "error": "Not Found",
+              "message": "Recibo não encontrado | Participante não encontrado neste recibo"
+            },
+            "500": {
+              "error": "Internal Server Error",
+              "message": "Erro ao fechar participação"
+            }
+          }
+        },
+        "getUserIds": {
+          "method": "GET",
+          "path": "/receipts/{id}/participants/user-ids",
+          "description": "Busca todos os user_ids dos participantes de um recibo",
+          "authentication": true,
+          "pathParams": {
+            "id": "string (UUID) - ID do recibo"
+          },
+          "response": {
+            "200": {
+              "userIds": "string[] (array de UUIDs)"
+            },
+            "401": {
+              "error": "Unauthorized",
+              "message": "Não autenticado"
+            },
+            "500": {
+              "error": "Internal Server Error",
+              "message": "Erro ao processar requisição"
+            }
+          }
+        }
+      },
+      "participants": {
+        "getUserId": {
+          "method": "GET",
+          "path": "/participants/{id}/user-id",
+          "description": "Busca o user_id de um participante",
+          "authentication": true,
+          "pathParams": {
+            "id": "string (UUID) - ID do participante"
+          },
+          "response": {
+            "200": {
+              "userId": "string (UUID) | null"
+            },
+            "404": {
+              "error": "Not Found",
+              "message": "Participante não encontrado"
+            },
+            "500": {
+              "error": "Internal Server Error",
+              "message": "Erro ao processar requisição"
+            }
+          }
+        }
+      },
+      "notifications": {
+        "list": {
+          "method": "GET",
+          "path": "/notifications",
+          "description": "Lista notificações do usuário autenticado com paginação",
+          "authentication": true,
+          "queryParams": {
+            "unreadOnly": "boolean (optional, default: false) - retorna apenas não lidas",
+            "page": "number (optional, default: 1)",
+            "limit": "number (fixo: 25 notificações por página)"
+          },
+          "response": {
+            "200": {
+              "notifications": "Notification[]",
+              "pagination": {
+                "page": "number",
+                "limit": "number",
+                "total": "number",
+                "totalPages": "number",
+                "hasMore": "boolean"
+              }
+            },
+            "401": {
+              "error": "Unauthorized",
+              "message": "Não autenticado"
+            },
+            "503": {
+              "error": "Service Unavailable",
+              "message": "Tabela de notificações ainda não está disponível. Aguarde alguns segundos e tente novamente."
+            },
+            "500": {
+              "error": "Internal Server Error",
+              "message": "Erro ao buscar notificações"
+            }
+          }
+        },
+        "create": {
+          "method": "POST",
+          "path": "/notifications",
+          "description": "Cria uma nova notificação",
+          "authentication": true,
+          "request": {
+            "body": {
+              "userId": "string (UUID, required)",
+              "type": "NotificationType (required)",
+              "title": "string (required)",
+              "message": "string (required)",
+              "receiptId": "string (UUID, optional)",
+              "relatedUserId": "string (UUID, optional)"
+            }
+          },
+          "response": {
+            "201": {
+              "success": "boolean"
+            },
+            "400": {
+              "error": "Bad Request",
+              "message": "Campos obrigatórios: userId, type, title, message"
+            },
+            "500": {
+              "error": "Internal Server Error",
+              "message": "Erro ao criar notificação"
+            }
+          }
+        },
+        "markAsRead": {
+          "method": "PUT",
+          "path": "/notifications",
+          "description": "Marca notificações como lidas (todas ou específicas)",
+          "authentication": true,
+          "request": {
+            "body": {
+              "markAllAsRead": "boolean (optional) - marca todas como lidas",
+              "notificationIds": "string[] (optional) - array de IDs de notificações específicas"
+            }
+          },
+          "response": {
+            "200": {
+              "success": "boolean"
+            },
+            "400": {
+              "error": "Bad Request",
+              "message": "Parâmetros inválidos"
+            },
+            "500": {
+              "error": "Internal Server Error",
+              "message": "Erro ao marcar notificações como lidas"
+            }
+          }
+        },
+        "markOneAsRead": {
+          "method": "PUT",
+          "path": "/notifications/{id}",
+          "description": "Marca uma notificação específica como lida",
+          "authentication": true,
+          "pathParams": {
+            "id": "string (UUID)"
+          },
+          "response": {
+            "200": {
+              "success": "boolean"
+            },
+            "404": {
+              "error": "Not Found",
+              "message": "Notificação não encontrada"
+            },
+            "500": {
+              "error": "Internal Server Error",
+              "message": "Erro ao atualizar notificação"
+            }
+          }
+        },
+        "delete": {
+          "method": "DELETE",
+          "path": "/notifications/{id}",
+          "description": "Deleta uma notificação",
+          "authentication": true,
+          "pathParams": {
+            "id": "string (UUID)"
+          },
+          "response": {
+            "200": {
+              "success": "boolean"
+            },
+            "404": {
+              "error": "Not Found",
+              "message": "Notificação não encontrada"
+            },
+            "500": {
+              "error": "Internal Server Error",
+              "message": "Erro ao deletar notificação"
+            }
+          }
+        }
+      },
+      "plans": {
+        "list": {
+          "method": "GET",
+          "path": "/plans",
+          "description": "Lista todos os planos disponíveis (apenas ativos)",
+          "authentication": false,
+          "response": {
+            "200": {
+              "plans": "Plan[]"
+            },
+            "500": {
+              "error": "string",
+              "message": "Erro ao buscar planos"
+            }
+          },
+          "notes": "Ordenado por preço mensal (ascendente)"
+        }
+      },
+      "subscriptions": {
+        "get": {
+          "method": "GET",
+          "path": "/subscriptions",
+          "description": "Obtém a assinatura ativa do usuário. Se não houver assinatura ativa, retorna plano gratuito.",
+          "authentication": true,
+          "response": {
+            "200": {
+              "subscription": "UserSubscription | null",
+              "plan": "Plan",
+              "expiresAt": "string (ISO 8601) | null"
+            },
+            "401": {
+              "error": "Unauthorized",
+              "message": "Não autenticado"
+            },
+            "500": {
+              "error": "string",
+              "message": "Erro ao buscar assinatura"
+            }
+          },
+          "notes": "Se não houver assinatura ativa, retorna plano gratuito (free). Calcula expiresAt baseado em started_at + 1 mês se não houver expires_at."
+        },
+        "create": {
+          "method": "POST",
+          "path": "/subscriptions",
+          "description": "Cria uma nova assinatura. Cancela assinatura ativa anterior se houver.",
+          "authentication": true,
+          "request": {
+            "body": {
+              "planId": "string (UUID, required)"
+            }
+          },
+          "response": {
+            "200": {
+              "subscription": "UserSubscription",
+              "expiresAt": "string (ISO 8601)"
+            },
+            "400": {
+              "error": "string",
+              "message": "ID do plano é obrigatório"
+            },
+            "404": {
+              "error": "string",
+              "message": "Plano não encontrado"
+            },
+            "500": {
+              "error": "string",
+              "message": "Erro ao criar assinatura"
+            }
+          },
+          "notes": "Cancela automaticamente assinatura ativa anterior. Expira em 1 mês a partir da data de criação."
+        },
+        "cancel": {
+          "method": "PUT",
+          "path": "/subscriptions",
+          "description": "Cancela a assinatura ativa do usuário",
+          "authentication": true,
+          "request": {
+            "body": {
+              "action": "string (required, value: 'cancel')"
+            }
+          },
+          "response": {
+            "200": {
+              "message": "Assinatura cancelada com sucesso",
+              "subscription": {
+                "id": "string (UUID)",
+                "status": "cancelled",
+                "cancelledAt": "string (ISO 8601)"
+              }
+            },
+            "400": {
+              "error": "string",
+              "message": "Ação inválida"
+            },
+            "404": {
+              "error": "string",
+              "message": "Nenhuma assinatura ativa encontrada"
+            },
+            "500": {
+              "error": "string",
+              "message": "Erro ao cancelar assinatura"
+            }
+          }
+        },
+        "cancelViaEndpoint": {
+          "method": "POST",
+          "path": "/subscriptions/cancel",
+          "description": "Cancela a assinatura ativa do usuário (endpoint alternativo)",
+          "authentication": true,
+          "response": {
+            "200": {
+              "message": "Assinatura cancelada com sucesso",
+              "subscription": {
+                "id": "string (UUID)",
+                "status": "cancelled",
+                "cancelledAt": "string (ISO 8601)"
+              }
+            },
+            "404": {
+              "error": "string",
+              "message": "Nenhuma assinatura ativa encontrada"
+            },
+            "500": {
+              "error": "string",
+              "message": "Erro ao cancelar assinatura"
+            }
+          }
+        }
+      }
+    },
+    "businessRules": {
+      "receipts": {
+        "inviteCode": "Deve ser único, 6-8 caracteres alfanuméricos, gerado automaticamente",
+        "total": "Calculado automaticamente: (soma dos itens) + (taxa do garçom proporcional) + (cover dividido igualmente)",
+        "isClosed": "Quando fechado, não permite adicionar novos itens. Apenas criador pode fechar.",
+        "creatorPermissions": "Criador pode: fechar recibo, excluir itens, aprovar/rejeitar exclusões, aceitar/rejeitar participantes, remover participantes, fechar participações de outros, transferir criador",
+        "participantPermissions": "Participante pode: adicionar itens, solicitar exclusão de seus próprios itens, fechar própria participação",
+        "onlyClosed": "Query param onlyClosed=true retorna apenas recibos fechados e aplica limite de histórico do plano (maxHistoryReceipts)"
+      },
+      "items": {
+        "addition": "Só pode adicionar se recibo não estiver fechado e participação não estiver fechada",
+        "deletion": "Criador pode excluir diretamente. Participantes devem solicitar exclusão",
+        "deletionRequest": "Participante só pode solicitar exclusão de seus próprios itens",
+        "notifications": "Novos itens adicionados geram notificações para outros participantes do recibo"
+      },
+      "participants": {
+        "autoCreation": "Participantes são criados automaticamente quando adicionam itens",
+        "pendingApproval": "Participantes que entram por código de convite ou request-join precisam de aprovação do criador",
+        "closedParticipation": "Participante pode fechar sua própria participação, mas criador sempre pode adicionar itens. Criador pode fechar participação de outros.",
+        "limitCheck": "Ao aceitar participantes pendentes, verifica limite de participantes do plano (maxParticipantsPerReceipt)"
+      },
+      "notifications": {
+        "types": "participant_request, participant_approved, participant_rejected, deletion_request, deletion_approved, deletion_rejected, receipt_closed, item_added, creator_transferred, creator_transferred_from",
+        "autoCreation": "Notificações são criadas automaticamente para: solicitações de participação, fechamento de recibo, adição de itens, transferência de criador"
+      },
+      "plans": {
+        "limits": "Planos têm limites: maxParticipantsPerReceipt, maxReceiptsPerMonth, maxHistoryReceipts (null = ilimitado)",
+        "freePlan": "Plano gratuito (free) é retornado quando usuário não tem assinatura ativa",
+        "checking": "Limites são verificados ao: criar recibo, aceitar participantes, listar histórico"
+      },
+      "subscriptions": {
+        "expiration": "Assinaturas expiram em 1 mês a partir de started_at. Se expires_at não for definido, calcula automaticamente.",
+        "cancellation": "Cancelar assinatura não deleta, apenas marca como 'cancelled'. Usuário continua tendo acesso até expires_at.",
+        "autoCancel": "Ao criar nova assinatura, cancela automaticamente assinatura ativa anterior"
+      }
+    },
+    "errorCodes": {
+      "400": "Bad Request - Dados inválidos ou validação falhou",
+      "401": "Unauthorized - Token inválido ou ausente",
+      "403": "Forbidden - Sem permissão para realizar a ação ou limite de plano atingido",
+      "404": "Not Found - Recurso não encontrado",
+      "500": "Internal Server Error - Erro interno do servidor",
+      "503": "Service Unavailable - Serviço temporariamente indisponível (ex: cache do Supabase)"
+    },
+    "dataTransformation": {
+      "note": "A API retorna dados em snake_case (ex: creator_id, service_charge_percent). O frontend deve transformar para camelCase (ex: creatorId, serviceChargePercent) usando transformToCamelCase() ou transformers específicos.",
+      "apiToFrontend": "snake_case → camelCase",
+      "frontendToApi": "camelCase → snake_case"
+    },
+    "notes": {
+      "calculations": "O cálculo do total do recibo deve ser feito no backend para garantir consistência",
+      "timestamps": "Todos os timestamps devem estar em formato ISO 8601 (UTC)",
+      "ids": "Todos os IDs devem ser UUIDs v4",
+      "pagination": "Endpoints de listagem devem suportar paginação quando aplicável",
+      "cache": "Dashboard stats tem cache de 5 minutos no servidor",
+      "permissions": "Sempre verificar permissões antes de operações. Criador tem permissões totais, participantes têm permissões limitadas",
+      "planLimits": "Sempre verificar limites do plano antes de operações que podem exceder limites",
+      "notifications": "Notificações são criadas automaticamente para eventos importantes. Falhas na criação de notificações não devem falhar a operação principal"
+    }
+  }
+  

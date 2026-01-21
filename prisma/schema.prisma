@@ -1,0 +1,237 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model SharezinUser {
+  id           String              @id @default(uuid()) @db.Uuid
+  name         String?              @db.Text
+  email        String               @unique @db.Text
+  passwordHash String               @map("password_hash") @db.Text
+  createdAt    DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  receiptsAsCreator        Receipt[]              @relation("ReceiptCreator")
+  pendingParticipantRequests PendingParticipant[]  @relation("PendingParticipantUser")
+  notifications            Notification[]         @relation("NotificationUser")
+  relatedNotifications      Notification[]        @relation("NotificationRelatedUser")
+  groups                   Group[]
+  participants             Participant[]
+  subscriptions            UserSubscription[]
+  expenses                 UserReceiptExpense[]
+
+  @@map("sharezin_users")
+}
+
+model Group {
+  id        String       @id @default(uuid()) @db.Uuid
+  name      String       @db.Text
+  userId    String       @map("user_id") @db.Uuid
+  createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  user        SharezinUser   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  participants Participant[]
+
+  @@map("groups")
+}
+
+model Participant {
+  id        String       @id @default(uuid()) @db.Uuid
+  name      String       @db.Text
+  userId    String?      @map("user_id") @db.Uuid
+  groupId   String?      @map("group_id") @db.Uuid
+  isClosed  Boolean      @default(false) @map("is_closed") @db.Boolean
+  createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  user                SharezinUser?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  group               Group?               @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  receiptParticipants ReceiptParticipant[]
+  receiptItems        ReceiptItem[]
+  deletionRequests   DeletionRequest[]
+  expenses            UserReceiptExpense[]
+
+  @@map("participants")
+}
+
+model Receipt {
+  id                 String            @id @default(uuid()) @db.Uuid
+  title              String            @db.Text
+  date               DateTime          @default(now()) @db.Timestamptz(6)
+  creatorId          String            @map("creator_id") @db.Uuid
+  inviteCode         String            @unique @map("invite_code") @db.Text
+  serviceChargePercent Decimal?        @map("service_charge_percent") @db.Decimal
+  cover              Decimal?          @default(0) @db.Decimal
+  total              Decimal?          @default(0) @db.Decimal
+  isClosed           Boolean           @default(false) @map("is_closed") @db.Boolean
+  createdAt          DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  creator            SharezinUser         @relation("ReceiptCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  receiptParticipants ReceiptParticipant[]
+  receiptItems       ReceiptItem[]
+  pendingParticipants PendingParticipant[]
+  deletionRequests   DeletionRequest[]
+  notifications      Notification[]
+  expenses           UserReceiptExpense[]
+
+  @@map("receipts")
+}
+
+model ReceiptParticipant {
+  id            String   @id @default(uuid()) @db.Uuid
+  receiptId     String   @map("receipt_id") @db.Uuid
+  participantId String   @map("participant_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relations
+  receipt     Receipt     @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  participant Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@unique([receiptId, participantId])
+  @@map("receipt_participants")
+}
+
+model ReceiptItem {
+  id           String       @id @default(uuid()) @db.Uuid
+  receiptId    String       @map("receipt_id") @db.Uuid
+  name         String       @db.Text
+  quantity     Decimal      @default(1) @db.Decimal
+  price        Decimal      @db.Decimal
+  participantId String      @map("participant_id") @db.Uuid
+  addedAt      DateTime     @default(now()) @map("added_at") @db.Timestamptz(6)
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  receipt          Receipt          @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  participant      Participant      @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  deletionRequests DeletionRequest[]
+
+  @@map("receipt_items")
+}
+
+model PendingParticipant {
+  id          String   @id @default(uuid()) @db.Uuid
+  receiptId   String   @map("receipt_id") @db.Uuid
+  name        String   @db.Text
+  userId      String   @map("user_id") @db.Uuid
+  requestedAt DateTime @default(now()) @map("requested_at") @db.Timestamptz(6)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relations
+  user    SharezinUser @relation("PendingParticipantUser", fields: [userId], references: [id], onDelete: Cascade)
+  receipt Receipt      @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+
+  @@map("pending_participants")
+}
+
+model DeletionRequest {
+  id           String   @id @default(uuid()) @db.Uuid
+  receiptId    String   @map("receipt_id") @db.Uuid
+  itemId       String   @map("item_id") @db.Uuid
+  participantId String  @map("participant_id") @db.Uuid
+  requestedAt  DateTime @default(now()) @map("requested_at") @db.Timestamptz(6)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relations
+  receipt     Receipt     @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  item        ReceiptItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  participant Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@map("deletion_requests")
+}
+
+model UserReceiptExpense {
+  id                 String   @id @default(uuid()) @db.Uuid
+  userId             String   @map("user_id") @db.Uuid
+  receiptId           String   @map("receipt_id") @db.Uuid
+  participantId       String   @map("participant_id") @db.Uuid
+  itemsTotal          Decimal  @default(0) @map("items_total") @db.Decimal
+  serviceChargeAmount Decimal  @default(0) @map("service_charge_amount") @db.Decimal
+  coverAmount         Decimal  @default(0) @map("cover_amount") @db.Decimal
+  totalSpent          Decimal  @default(0) @map("total_spent") @db.Decimal
+  receiptDate         DateTime @map("receipt_date") @db.Timestamptz(6)
+  receiptTitle        String   @map("receipt_title") @db.Text
+  isClosed            Boolean  @default(false) @map("is_closed") @db.Boolean
+  periodMonth         String?  @map("period_month") @db.Text
+  periodDay           String?  @map("period_day") @db.Text
+  calculatedAt        DateTime @default(now()) @map("calculated_at") @db.Timestamptz(6)
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  user        SharezinUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  receipt     Receipt      @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  participant Participant  @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@map("user_receipt_expenses")
+}
+
+model Notification {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  type         String   @db.VarChar
+  title        String   @db.VarChar
+  message      String   @db.Text
+  receiptId    String?  @map("receipt_id") @db.Uuid
+  relatedUserId String? @map("related_user_id") @db.Uuid
+  isRead       Boolean  @default(false) @map("is_read") @db.Boolean
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  user         SharezinUser  @relation("NotificationUser", fields: [userId], references: [id], onDelete: Cascade)
+  relatedUser  SharezinUser? @relation("NotificationRelatedUser", fields: [relatedUserId], references: [id], onDelete: SetNull)
+  receipt      Receipt?      @relation(fields: [receiptId], references: [id], onDelete: SetNull)
+
+  @@map("notifications")
+}
+
+model Plan {
+  id                       String            @id @default(uuid()) @db.Uuid
+  name                     String            @unique @db.VarChar
+  displayName               String            @map("display_name") @db.VarChar
+  description              String?           @db.Text
+  priceMonthly             Decimal?          @default(0) @map("price_monthly") @db.Decimal
+  maxParticipantsPerReceipt Int?             @map("max_participants_per_receipt") @db.Integer
+  maxReceiptsPerMonth      Int?             @map("max_receipts_per_month") @db.Integer
+  maxHistoryReceipts       Int?             @map("max_history_receipts") @db.Integer
+  features                 Json?             @default("{}") @db.JsonB
+  isActive                 Boolean           @default(true) @map("is_active") @db.Boolean
+  createdAt                DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  subscriptions UserSubscription[]
+
+  @@map("plans")
+}
+
+model UserSubscription {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  planId     String   @map("plan_id") @db.Uuid
+  status     String   @default("active") @db.VarChar
+  startedAt  DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  expiresAt  DateTime? @map("expires_at") @db.Timestamptz(6)
+  cancelledAt DateTime? @map("cancelled_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  user SharezinUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan Plan         @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@map("user_subscriptions")
+}
