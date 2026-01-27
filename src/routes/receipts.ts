@@ -9,7 +9,7 @@ import {
   generateInviteCode,
   recalculateReceiptTotal,
 } from '../utils/receipts';
-import { checkReceiptLimit, checkParticipantLimit, getHistoryLimit } from '../utils/plans';
+import { checkReceiptLimit, getHistoryLimit, getUserActivePlan } from '../utils/plans';
 import {
   notifyReceiptClosed,
   notifyItemAdded,
@@ -86,14 +86,15 @@ export async function receiptRoutes(fastify: FastifyInstance) {
             pd.total += totalSpent;
             pd.receiptIds.add(e.receiptId);
             dayMap.set(day, pd);
+
+            distribution.push({
+              receiptId: e.receiptId,
+              receiptTitle: e.receiptTitle,
+              receiptDate: e.receiptDate.toISOString(),
+              totalSpent,
+              isClosed: e.isClosed,
+            });
           }
-          distribution.push({
-            receiptId: e.receiptId,
-            receiptTitle: e.receiptTitle,
-            receiptDate: e.receiptDate.toISOString(),
-            totalSpent,
-            isClosed: e.isClosed,
-          });
         }
 
         const expensesByPeriod = Array.from(periodMap.entries()).map(([period, v]) => ({
@@ -236,6 +237,34 @@ export async function receiptRoutes(fastify: FastifyInstance) {
         });
         const creatorName = creator?.name ?? 'Participante';
 
+        if (body.groupId) {
+          const group = await prisma.group.findUnique({
+            where: { id: body.groupId },
+            select: { userId: true },
+          });
+          if (!group || group.userId !== userId) {
+            return reply.status(403).send({
+              error: 'Forbidden',
+              message: 'Grupo não encontrado ou não pertence a você',
+            });
+          }
+          const groupParticipants = await prisma.participant.findMany({
+            where: { groupId: body.groupId },
+            select: { id: true },
+          });
+          const limits = await getUserActivePlan(userId);
+          const totalParticipants = 1 + groupParticipants.length;
+          if (
+            limits.maxParticipantsPerReceipt != null &&
+            totalParticipants > limits.maxParticipantsPerReceipt
+          ) {
+            return reply.status(403).send({
+              error: 'Plan Limit',
+              message: 'Limite de participantes do plano excedido',
+            });
+          }
+        }
+
         const receipt = await prisma.$transaction(async (tx) => {
           const rec = await tx.receipt.create({
             data: {
@@ -262,6 +291,24 @@ export async function receiptRoutes(fastify: FastifyInstance) {
             const groupParticipants = await tx.participant.findMany({
               where: { groupId: body.groupId },
             });
+            const totalParticipants = 1 + groupParticipants.length;
+            const now = new Date();
+            const activeSub = await tx.userSubscription.findFirst({
+              where: {
+                userId,
+                status: 'active',
+                OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+              },
+              include: { plan: true },
+              orderBy: { startedAt: 'desc' },
+            });
+            const plan = activeSub?.plan ?? await tx.plan.findUnique({ where: { name: 'free', isActive: true } });
+            const max = plan?.maxParticipantsPerReceipt ?? null;
+            if (max != null && totalParticipants > max) {
+              const e = new Error('Limite de participantes do plano excedido') as Error & { planLimit?: boolean };
+              e.planLimit = true;
+              throw e;
+            }
             for (const gp of groupParticipants) {
               const exists = await tx.receiptParticipant.findUnique({
                 where: {
@@ -284,6 +331,13 @@ export async function receiptRoutes(fastify: FastifyInstance) {
 
         return reply.status(201).send({ receipt: formatReceiptResponse(receipt) });
       } catch (err) {
+        const planLimit = (err as Error & { planLimit?: boolean })?.planLimit;
+        if (planLimit) {
+          return reply.status(403).send({
+            error: 'Plan Limit',
+            message: (err as Error).message,
+          });
+        }
         request.log.error(err);
         return reply.status(500).send({
           error: 'Internal Server Error',
@@ -353,33 +407,65 @@ export async function receiptRoutes(fastify: FastifyInstance) {
 
         const updateData: Prisma.ReceiptUpdateInput = {};
         if (isCreator) {
-          if (body.title !== undefined) updateData.title = String(body.title).trim();
+          if (body.title !== undefined) {
+            const trimmedTitle = String(body.title).trim();
+            if (!trimmedTitle) {
+              return reply.status(400).send({
+                error: 'Bad Request',
+                message: 'Título não pode ser vazio',
+              });
+            }
+            updateData.title = trimmedTitle;
+          }
           if (body.serviceChargePercent !== undefined)
-            updateData.serviceChargePercent = new Prisma.Decimal(Number(body.serviceChargePercent) || 0);
-          if (body.cover !== undefined) updateData.cover = new Prisma.Decimal(Number(body.cover) || 0);
-          if (body.isClosed !== undefined) updateData.isClosed = Boolean(body.isClosed);
+            updateData.serviceChargePercent = new Prisma.Decimal(Math.max(0, Number(body.serviceChargePercent) || 0));
+          if (body.cover !== undefined)
+            updateData.cover = new Prisma.Decimal(Math.max(0, Number(body.cover) || 0));
+          if (body.isClosed !== undefined) {
+            const requestedClosed = Boolean(body.isClosed);
+            if (rec.isClosed && !requestedClosed) {
+              return reply.status(400).send({
+                error: 'Bad Request',
+                message: 'Não é possível reabrir um recibo já fechado',
+              });
+            }
+            updateData.isClosed = requestedClosed;
+          }
         }
 
         const newItems = Array.isArray(body.items) ? body.items : [];
         const participantUserIds = await getParticipantUserIds(id);
 
-        if (newItems.length) {
-          const canAdd = await checkParticipantLimit(id, rec.creatorId);
-          if (!canAdd) {
+        const myParticipantId =
+          !isCreator && newItems.length > 0
+            ? rec.receiptParticipants?.find((rp) => rp.participant.userId === userId)?.participant.id
+            : null;
+
+        type ValidItem = { name: string; quantity: number; price: number; participantId: string };
+        const validItems: ValidItem[] = [];
+        for (const it of newItems) {
+          const name = it.name && String(it.name).trim();
+          const quantity = Math.max(0, Number(it.quantity) || 1);
+          const price = Math.max(0, Number(it.price) || 0);
+          const participantId = it.participantId;
+          if (!name || !participantId) continue;
+          validItems.push({ name, quantity, price, participantId });
+        }
+
+        if (!isCreator && validItems.length > 0) {
+          if (!myParticipantId || validItems.some((it) => it.participantId !== myParticipantId)) {
             return reply.status(403).send({
               error: 'Forbidden',
-              message: 'Limite de participantes atingido',
+              message: 'Participante só pode adicionar itens para a própria participação',
             });
           }
-          for (const it of newItems) {
-            const name = it.name && String(it.name).trim();
-            const quantity = Math.max(0, Number(it.quantity) ?? 1);
-            const price = Math.max(0, Number(it.price) ?? 0);
-            const participantId = it.participantId;
-            if (!name || !participantId) continue;
+        }
+
+        if (validItems.length) {
+          for (const it of validItems) {
             const link = await prisma.receiptParticipant.findUnique({
               where: {
-                receiptId_participantId: { receiptId: id, participantId },
+                receiptId_participantId: { receiptId: id, participantId: it.participantId },
               },
               include: { participant: { select: { isClosed: true } } },
             });
@@ -388,25 +474,19 @@ export async function receiptRoutes(fastify: FastifyInstance) {
             await prisma.receiptItem.create({
               data: {
                 receiptId: id,
-                name,
-                quantity: new Prisma.Decimal(quantity),
-                price: new Prisma.Decimal(price),
-                participantId,
+                name: it.name,
+                quantity: new Prisma.Decimal(it.quantity),
+                price: new Prisma.Decimal(it.price),
+                participantId: it.participantId,
               },
             });
-            const part = await prisma.participant.findUnique({
-              where: { id: participantId },
-              select: { userId: true },
+            await notifyItemAdded({
+              receiptId: id,
+              receiptTitle: rec.title,
+              itemName: it.name,
+              addedByUserId: userId,
+              participantUserIds,
             });
-            if (part?.userId) {
-              await notifyItemAdded({
-                receiptId: id,
-                receiptTitle: rec.title,
-                itemName: name,
-                addedByUserId: part.userId,
-                participantUserIds,
-              });
-            }
           }
           await recalculateReceiptTotal(id);
         }
@@ -509,13 +589,11 @@ export async function receiptRoutes(fastify: FastifyInstance) {
           0
         );
         const serviceTotal = (itemsTotalAll * servicePercent) / 100;
-        const n = Math.max(receipt.receiptParticipants.length, 1);
-        const coverPerPerson = cover / n;
+        const participantsWithUserId = receipt.receiptParticipants.filter((rp) => rp.participant.userId);
+        const nCover = Math.max(participantsWithUserId.length, 1);
+        const coverPerPerson = cover / nCover;
 
-        const participantUserIds: string[] = [];
-        for (const rp of receipt.receiptParticipants) {
-          if (rp.participant.userId) participantUserIds.push(rp.participant.userId);
-        }
+        const participantUserIds: string[] = participantsWithUserId.map((rp) => rp.participant.userId!);
 
         await prisma.$transaction(async (tx) => {
           for (const rp of receipt.receiptParticipants) {
@@ -767,6 +845,34 @@ export async function receiptRoutes(fastify: FastifyInstance) {
     }
   );
 
+  // GET /receipts/:id/participants/user-ids — antes das rotas com :participantId para não ser confundido com segmento literal
+  fastify.get<{ Params: { id: string } }>(
+    '/:id/participants/user-ids',
+    { preHandler: [authenticate] },
+    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      try {
+        const userId = request.userPayload!.id;
+        const { id } = request.params;
+        const access = await checkReceiptAccess(id, userId);
+        if (!access) {
+          const exists = await getReceiptById(id);
+          return reply.status(exists ? 403 : 404).send({
+            error: exists ? 'Forbidden' : 'Not Found',
+            message: exists ? 'Sem permissão para acessar este recibo' : 'Recibo não encontrado',
+          });
+        }
+        const userIds = await getParticipantUserIds(id);
+        return reply.send({ userIds });
+      } catch (err) {
+        request.log.error(err);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: 'Erro ao processar requisição',
+        });
+      }
+    }
+  );
+
   // DELETE /receipts/:id/participants/:participantId
   fastify.delete<{ Params: { id: string; participantId: string } }>(
     '/:id/participants/:participantId',
@@ -791,6 +897,12 @@ export async function receiptRoutes(fastify: FastifyInstance) {
             message: 'Apenas o criador pode remover participantes',
           });
         }
+        if (receipt.isClosed) {
+          return reply.status(400).send({
+            error: 'Bad Request',
+            message: 'Não é possível remover participante de um recibo fechado',
+          });
+        }
         const link = await prisma.receiptParticipant.findUnique({
           where: {
             receiptId_participantId: { receiptId: id, participantId },
@@ -809,12 +921,16 @@ export async function receiptRoutes(fastify: FastifyInstance) {
             message: 'Não é possível remover a própria participação como criador',
           });
         }
-        await prisma.receiptParticipant.delete({
-          where: {
-            receiptId_participantId: { receiptId: id, participantId },
-          },
-        });
-        await prisma.participant.delete({ where: { id: participantId } });
+        await prisma.$transaction([
+          prisma.receiptItem.deleteMany({
+            where: { receiptId: id, participantId },
+          }),
+          prisma.receiptParticipant.delete({
+            where: {
+              receiptId_participantId: { receiptId: id, participantId },
+            },
+          }),
+        ]);
         await recalculateReceiptTotal(id);
         const updated = await getReceiptById(id);
         return reply.send({ receipt: formatReceiptResponse(updated!) });
@@ -870,13 +986,7 @@ export async function receiptRoutes(fastify: FastifyInstance) {
           return reply.status(403).send({
             error: 'Forbidden',
             message:
-              'Apenas o criador pode fechar participações de outros. Use "Fechar Minha Participação" para fechar a sua.',
-          });
-        }
-        if (isCreator && isSelf) {
-          return reply.status(403).send({
-            error: 'Forbidden',
-            message: 'Use a opção "Fechar Minha Participação" para fechar sua própria participação',
+              'Apenas o criador pode fechar participações de outros, ou você pode fechar a sua própria participação.',
           });
         }
         await prisma.participant.update({
@@ -890,34 +1000,6 @@ export async function receiptRoutes(fastify: FastifyInstance) {
         return reply.status(500).send({
           error: 'Internal Server Error',
           message: 'Erro ao fechar participação',
-        });
-      }
-    }
-  );
-
-  // GET /receipts/:id/participants/user-ids — registro com prefixo para não colidir com :id
-  fastify.get<{ Params: { id: string } }>(
-    '/:id/participants/user-ids',
-    { preHandler: [authenticate] },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-      try {
-        const userId = request.userPayload!.id;
-        const { id } = request.params;
-        const access = await checkReceiptAccess(id, userId);
-        if (!access) {
-          const exists = await getReceiptById(id);
-          return reply.status(exists ? 403 : 404).send({
-            error: exists ? 'Forbidden' : 'Not Found',
-            message: exists ? 'Sem permissão para acessar este recibo' : 'Recibo não encontrado',
-          });
-        }
-        const userIds = await getParticipantUserIds(id);
-        return reply.send({ userIds });
-      } catch (err) {
-        request.log.error(err);
-        return reply.status(500).send({
-          error: 'Internal Server Error',
-          message: 'Erro ao processar requisição',
         });
       }
     }
