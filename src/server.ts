@@ -7,7 +7,6 @@ import dotenv from 'dotenv';
 import { registerRoutes } from './routes';
 import { errorHandler, notFoundHandler } from './utils/errors';
 import { prisma } from './config/database';
-import { connectionManager } from './utils/websocket-manager';
 
 dotenv.config();
 
@@ -76,18 +75,7 @@ async function start() {
 // Graceful shutdown
 const shutdown = async () => {
   console.log('Shutting down gracefully...');
-  
-  // Fecha todas as conexões WebSocket
-  console.log('Closing WebSocket connections...');
-  connectionManager.closeAllConnections();
-  
-  // Aguarda um pouco para que as mensagens sejam enviadas
-  await new Promise((resolve) => setTimeout(resolve, 2000));
-  
-  // Desconecta do banco de dados
   await prisma.$disconnect();
-  
-  console.log('Shutdown complete');
   process.exit(0);
 };
 

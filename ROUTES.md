@@ -276,41 +276,18 @@ Deleta um usuário.
 ## 🔄 Realtime (`/api/realtime`)
 
 ### WebSocket `/api/realtime/ws`
-Endpoint WebSocket para conexões em tempo real com Supabase Realtime, notificações e eventos de recibos.
+Endpoint WebSocket para conexões em tempo real com Supabase Realtime.
 
-**Autenticação**: Opcional (via query param `?token=JWT_TOKEN` ou header `Authorization: Bearer TOKEN`)
+**Autenticação**: Não requerida (pode ser adicionada se necessário)
 
 **Conexão**:
 ```javascript
-// Sem autenticação
 const ws = new WebSocket('ws://localhost:3000/api/realtime/ws');
-
-// Com autenticação (recomendado para notificações)
-const ws = new WebSocket('ws://localhost:3000/api/realtime/ws?token=JWT_TOKEN');
-// ou
-const ws = new WebSocket('wss://seu-app.onrender.com/api/realtime/ws?token=JWT_TOKEN');
 ```
 
-**Mensagens Enviadas (Cliente → Servidor)**:
+**Mensagens Enviadas**:
 
-1. **Subscribe to notifications** (requer autenticação):
-```json
-{
-  "type": "subscribe",
-  "channel": "notifications"
-}
-```
-
-2. **Subscribe to receipt changes**:
-```json
-{
-  "type": "subscribe",
-  "channel": "receipt",
-  "receiptId": "uuid-do-receipt"
-}
-```
-
-3. **Subscribe to Supabase table changes** (legado):
+1. **Subscribe to table changes**:
 ```json
 {
   "type": "subscribe",
@@ -318,30 +295,20 @@ const ws = new WebSocket('wss://seu-app.onrender.com/api/realtime/ws?token=JWT_T
 }
 ```
 
-4. **Unsubscribe**:
-```json
-{
-  "type": "unsubscribe",
-  "channel": "notifications"
-}
-```
-
-5. **Ping** (heartbeat):
+2. **Ping**:
 ```json
 {
   "type": "ping"
 }
 ```
 
-**Mensagens Recebidas (Servidor → Cliente)**:
+**Mensagens Recebidas**:
 
 1. **Connection established**:
 ```json
 {
   "type": "connected",
-  "message": "Connected to realtime server",
-  "authenticated": true,
-  "userId": "uuid" // ou null se não autenticado
+  "message": "Connected to realtime server"
 }
 ```
 
@@ -349,62 +316,11 @@ const ws = new WebSocket('wss://seu-app.onrender.com/api/realtime/ws?token=JWT_T
 ```json
 {
   "type": "subscribed",
-  "channel": "notifications"
+  "table": "users"
 }
 ```
 
-3. **Notification** (quando inscrito em 'notifications'):
-```json
-{
-  "type": "notification",
-  "data": {
-    "id": "uuid",
-    "userId": "uuid",
-    "type": "receipt_closed",
-    "title": "Recibo Fechado",
-    "message": "O recibo foi fechado",
-    "receiptId": "uuid",
-    "relatedUserId": "uuid",
-    "isRead": false,
-    "createdAt": "2024-01-01T00:00:00.000Z",
-    "updatedAt": "2024-01-01T00:00:00.000Z"
-  }
-}
-```
-
-4. **Receipt event** (quando inscrito em um recibo):
-```json
-{
-  "type": "receipt_event",
-  "receiptId": "uuid",
-  "event": "item_added",
-  "data": {
-    "item": {
-      "name": "Produto",
-      "quantity": 1,
-      "price": 10.50,
-      "participantId": "uuid"
-    }
-  },
-  "timestamp": "2024-01-01T00:00:00.000Z"
-}
-```
-
-**Tipos de eventos de recibo**:
-- `receipt_updated` - Recibo foi atualizado
-- `receipt_closed` - Recibo foi fechado
-- `item_added` - Item adicionado ao recibo
-- `item_removed` - Item removido do recibo
-- `item_updated` - Item atualizado
-- `participant_added` - Participante adicionado
-- `participant_removed` - Participante removido
-- `participant_closed` - Participação fechada
-- `participant_requested` - Nova solicitação de participação
-- `participant_approved` - Participação aprovada
-- `participant_rejected` - Participação rejeitada
-- `creator_transferred` - Criador transferido
-
-5. **Table change** (Supabase postgres_changes - legado):
+3. **Table change**:
 ```json
 {
   "type": "change",
@@ -417,22 +333,14 @@ const ws = new WebSocket('wss://seu-app.onrender.com/api/realtime/ws?token=JWT_T
 }
 ```
 
-6. **Pong** (resposta ao ping):
+4. **Pong**:
 ```json
 {
   "type": "pong"
 }
 ```
 
-7. **Shutdown warning** (servidor desligando):
-```json
-{
-  "type": "shutdown",
-  "message": "Server is shutting down. Please reconnect."
-}
-```
-
-8. **Error**:
+5. **Error**:
 ```json
 {
   "type": "error",
@@ -566,54 +474,21 @@ curl -X GET http://localhost:3000/api/auth/me \
 ### Exemplo: WebSocket
 
 ```javascript
-const token = 'seu-jwt-token'; // Obtido do login
-const ws = new WebSocket(`ws://localhost:3000/api/realtime/ws?token=${token}`);
+const ws = new WebSocket('ws://localhost:3000/api/realtime/ws');
 
 ws.onopen = () => {
   console.log('Connected');
   
-  // Subscribe to notifications (requer autenticação)
+  // Subscribe to users table
   ws.send(JSON.stringify({
     type: 'subscribe',
-    channel: 'notifications'
-  }));
-  
-  // Subscribe to receipt changes
-  ws.send(JSON.stringify({
-    type: 'subscribe',
-    channel: 'receipt',
-    receiptId: 'uuid-do-receipt'
+    table: 'users'
   }));
 };
 
 ws.onmessage = (event) => {
   const data = JSON.parse(event.data);
-  
-  switch (data.type) {
-    case 'connected':
-      console.log('Connected:', data.message, 'Authenticated:', data.authenticated);
-      break;
-    case 'notification':
-      console.log('New notification:', data.data);
-      // Atualizar UI com notificação
-      break;
-    case 'receipt_event':
-      console.log('Receipt event:', data.event, data.data);
-      // Atualizar UI do recibo
-      break;
-    case 'pong':
-      // Heartbeat response
-      break;
-    case 'shutdown':
-      console.log('Server shutting down, reconnecting...');
-      // Implementar reconexão
-      break;
-    case 'error':
-      console.error('Error:', data.message);
-      break;
-    default:
-      console.log('Received:', data);
-  }
+  console.log('Received:', data);
 };
 
 ws.onerror = (error) => {
@@ -622,15 +497,7 @@ ws.onerror = (error) => {
 
 ws.onclose = () => {
   console.log('Disconnected');
-  // Implementar reconexão com exponential backoff
 };
-
-// Enviar ping periódico (opcional, servidor também envia)
-setInterval(() => {
-  if (ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'ping' }));
-  }
-}, 30000);
 ```
 
 ---
