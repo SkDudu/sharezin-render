@@ -1,6 +1,5 @@
 import { prisma } from '../config/database';
 import { NotificationType } from '../types';
-import { broadcastNotification } from './notification-broadcaster';
 
 /**
  * Cria uma notificação no banco de dados
@@ -13,7 +12,7 @@ export async function createNotification(data: {
   receiptId?: string;
   relatedUserId?: string;
 }) {
-  const notification = await prisma.notification.create({
+  return await prisma.notification.create({
     data: {
       userId: data.userId,
       type: data.type,
@@ -24,27 +23,6 @@ export async function createNotification(data: {
       isRead: false,
     },
   });
-
-  // Broadcast via WebSocket (não bloqueia se falhar)
-  try {
-    broadcastNotification({
-      id: notification.id,
-      userId: notification.userId,
-      type: notification.type as NotificationType,
-      title: notification.title,
-      message: notification.message,
-      receiptId: notification.receiptId || undefined,
-      relatedUserId: notification.relatedUserId || undefined,
-      isRead: notification.isRead,
-      createdAt: notification.createdAt.toISOString(),
-      updatedAt: notification.updatedAt.toISOString(),
-    });
-  } catch (error) {
-    // Log mas não falha a criação da notificação
-    console.error('Error broadcasting notification:', error);
-  }
-
-  return notification;
 }
 
 /**

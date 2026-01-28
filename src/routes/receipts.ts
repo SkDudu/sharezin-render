@@ -15,7 +15,6 @@ import {
   notifyParticipantRequest,
   notifyCreatorTransferred,
 } from '../utils/notifications';
-import { broadcastReceiptEvent, broadcastReceiptEventToParticipants } from '../utils/receipt-event-broadcaster';
 import {
   checkIsCreator,
   checkIsParticipant,
@@ -415,11 +414,6 @@ export async function receiptRoutes(fastify: FastifyInstance) {
           throw new Error('Erro ao criar recibo');
         }
 
-        // Broadcast evento de criação (assíncrono)
-        broadcastReceiptEvent(result.id, 'receipt_updated', {
-          receipt: formatReceiptResponse(result),
-        }).catch(console.error);
-
         return reply.status(201).send({
           receipt: formatReceiptResponse(result),
         });
@@ -562,16 +556,6 @@ export async function receiptRoutes(fastify: FastifyInstance) {
 
             // Notifica outros participantes (assíncrono)
             notifyItemAdded(id, item.participantId, userId).catch(console.error);
-
-            // Broadcast evento de item adicionado (assíncrono)
-            broadcastReceiptEventToParticipants(id, 'item_added', {
-              item: {
-                name: item.name,
-                quantity: item.quantity,
-                price: item.price,
-                participantId: item.participantId,
-              },
-            }).catch(console.error);
           }
         }
 
@@ -612,11 +596,6 @@ export async function receiptRoutes(fastify: FastifyInstance) {
         if (!updatedReceipt) {
           throw new Error('Erro ao buscar recibo atualizado');
         }
-
-        // Broadcast evento de atualização (assíncrono)
-        broadcastReceiptEventToParticipants(id, 'receipt_updated', {
-          receipt: formatReceiptResponse(updatedReceipt),
-        }).catch(console.error);
 
         return reply.send({
           receipt: formatReceiptResponse(updatedReceipt),
@@ -765,11 +744,6 @@ export async function receiptRoutes(fastify: FastifyInstance) {
 
         // Notifica participantes (assíncrono)
         notifyReceiptClosed(id, userId).catch(console.error);
-
-        // Broadcast evento de fechamento (assíncrono)
-        broadcastReceiptEventToParticipants(id, 'receipt_closed', {
-          total,
-        }).catch(console.error);
 
         // Busca recibo completo para retornar
         const receiptWithRelations = await prisma.receipt.findUnique({
@@ -921,15 +895,6 @@ export async function receiptRoutes(fastify: FastifyInstance) {
         // Notifica criador (assíncrono)
         notifyParticipantRequest(id, userId, receipt.creatorId).catch(console.error);
 
-        // Broadcast evento de solicitação (assíncrono)
-        broadcastReceiptEventToParticipants(id, 'participant_requested', {
-          pendingParticipant: {
-            id: pendingParticipant.id,
-            name: pendingParticipant.name,
-            userId: pendingParticipant.userId,
-          },
-        }).catch(console.error);
-
         return reply.status(201).send({
           message: 'Solicitação de entrada enviada com sucesso',
           pendingParticipant: {
@@ -1071,12 +1036,6 @@ export async function receiptRoutes(fastify: FastifyInstance) {
           console.error
         );
 
-        // Broadcast evento de transferência (assíncrono)
-        broadcastReceiptEventToParticipants(id, 'creator_transferred', {
-          oldCreatorId: userId,
-          newCreatorId: newCreatorParticipant.userId,
-        }).catch(console.error);
-
         // Busca recibo completo para retornar
         const receiptWithRelations = await prisma.receipt.findUnique({
           where: { id },
@@ -1183,11 +1142,6 @@ export async function receiptRoutes(fastify: FastifyInstance) {
             },
           });
         }
-
-        // Broadcast evento de remoção (assíncrono)
-        broadcastReceiptEventToParticipants(id, 'participant_removed', {
-          participantId,
-        }).catch(console.error);
 
         return reply.send({
           receipt: formatReceiptResponse(receipt),
@@ -1312,11 +1266,6 @@ export async function receiptRoutes(fastify: FastifyInstance) {
             },
           });
         }
-
-        // Broadcast evento de fechamento de participação (assíncrono)
-        broadcastReceiptEventToParticipants(id, 'participant_closed', {
-          participantId,
-        }).catch(console.error);
 
         return reply.send({
           receipt: formatReceiptResponse(updatedReceipt),
